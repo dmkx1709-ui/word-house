@@ -1,4 +1,4 @@
-const CACHE = 'wordhouse-v4';
+const CACHE = 'wordhouse-v5';
 const FILES = [
   './',
   './index.html',
@@ -32,15 +32,25 @@ self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   var request = e.request;
   e.respondWith(
-    fetch(request).then(function (res) {
-      if (res && res.status === 200) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(request, copy); });
+    caches.match(request, { ignoreSearch: true }).then(function (cached) {
+      if (cached) {
+        // 先用缓存秒开，再在后台悄悄更新；网络被墙或断开也不影响打开
+        fetch(request).then(function (res) {
+          if (res && res.status === 200) {
+            var copy = res.clone();
+            caches.open(CACHE).then(function (c) { c.put(request, copy); });
+          }
+        }).catch(function () {});
+        return cached;
       }
-      return res;
-    }).catch(function () {
-      return caches.match(request, { ignoreSearch: true }).then(function (cached) {
-        return cached || caches.match('./index.html');
+      return fetch(request).then(function (res) {
+        if (res && res.status === 200) {
+          var copy = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(request, copy); });
+        }
+        return res;
+      }).catch(function () {
+        return caches.match('./index.html');
       });
     })
   );
