@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF8E8"/>
+      <stop offset="1" stop-color="#FBE8C9"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#93C38C"/>
+      <stop offset="1" stop-color="#6FA368"/>
+    </linearGradient>
+    <linearGradient id="door" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D89467"/>
+      <stop offset="1" stop-color="#B97A4E"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="96" cy="96" r="26" fill="#FFD75E" opacity=".55"/>
+  <circle cx="420" cy="104" r="16" fill="#FFD75E" opacity=".45"/>
+  <circle cx="404" cy="452" r="22" fill="#F6C6D3" opacity=".8"/>
+  <circle cx="96" cy="420" r="12" fill="#9BD3F2" opacity=".7"/>
+
+  <ellipse cx="256" cy="438" rx="168" ry="24" fill="#E8C9A0" opacity=".7"/>
+
+  <rect x="138" y="238" width="236" height="182" rx="20" fill="#FFFDF8" stroke="#C97B54" stroke-width="12"/>
+  <path d="M104 256 L256 128 L408 256" fill="url(#roof)" stroke="#5E8F57" stroke-width="12" stroke-linejoin="round"/>
+  <rect x="226" y="316" width="60" height="104" rx="10" fill="url(#door)" stroke="#9C6740" stroke-width="6"/>
+  <circle cx="272" cy="372" r="5.5" fill="#FFE9AD"/>
+  <rect x="162" y="286" width="56" height="56" rx="9" fill="#9BD3F2" stroke="#5E8F57" stroke-width="8"/>
+  <path d="M190 290 V338 M166 314 H214" stroke="#5E8F57" stroke-width="6" stroke-linecap="round"/>
+  <rect x="326" y="290" width="28" height="34" rx="5" fill="#F6E3C5" stroke="#C97B54" stroke-width="5"/>
+  <path d="M330 302 H350 M330 312 H350" stroke="#C97B54" stroke-width="3.5" stroke-linecap="round"/>
+
+  <g transform="translate(318 404) rotate(-6)">
+    <rect x="0" y="0" width="86" height="38" rx="8" fill="#C97B54" stroke="#9C6740" stroke-width="5"/>
+    <path d="M0 13 H86 M0 26 H86 M22 0 V13 M56 0 V13 M14 13 V26 M43 13 V26 M70 13 V26" stroke="#F6E3C5" stroke-width="4" opacity=".85"/>
+  </g>
+
+  <path d="M118 190 l4 11 11 4 -11 4 -4 11 -4 -11 -11 -4 11 -4z" fill="#F6C85F"/>
+  <path d="M398 176 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3z" fill="#F6C85F"/>
+  <circle cx="370" cy="150" r="5" fill="#F5A97F"/>
+</svg>
