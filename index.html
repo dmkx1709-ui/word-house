@@ -26,6 +26,7 @@
 
   <main id="main">
     <section class="screen active" id="screen-home">
+      <div class="room-tabs" id="roomTabs"></div>
       <div class="room" id="room" data-theme="cream" data-sky="day">
         <div class="wall"></div>
         <div class="floor"></div>
@@ -91,6 +92,10 @@
           <div class="bar"><i id="completionBar"></i></div>
         </div>
         <div class="goal-line" id="goalLine">再答对 5 个词，就能买下 🛋️ 小沙发</div>
+        <div class="energy-row">
+          <span class="energy-pill">⚡ 体力 <b id="energyLeft">15</b><span class="muted">/15</span></span>
+          <span class="round-pill">今日 <b id="roundsUsed">0</b><span class="muted">/3 轮</span></span>
+        </div>
         <button class="btn primary big" id="btnStart">
           <span class="btn-main" id="startLabel">开始今天的小任务</span>
           <small id="startSub">新词 8 · 复习 0</small>
@@ -100,6 +105,7 @@
           <button class="btn soft" id="btnDecorate"><span>🪄</span>布置</button>
           <button class="btn soft" id="btnWordbook"><span>📖</span>单词本</button>
         </div>
+        <button class="btn soft mistake-btn hidden" id="btnMistakes">📕 错题复习 <b id="mistakeCount">0</b> 个</button>
       </div>
     </section>
 
@@ -156,6 +162,7 @@
       <div class="filter-row" id="wordFilters">
         <button class="chip active" data-filter="all">全部</button>
         <button class="chip" data-filter="learning">学习中</button>
+        <button class="chip" data-filter="mistake">错题</button>
         <button class="chip" data-filter="mastered">已掌握</button>
         <button class="chip" data-filter="new">新词</button>
       </div>
@@ -171,12 +178,9 @@
       </div>
       <div class="settings-body">
         <section class="card">
-          <h3>每天的新词</h3>
-          <p class="muted">建议 6–10 个。太少学得慢，太多会累。</p>
-          <div class="slider-row">
-            <input type="range" id="newPerDay" min="4" max="15" step="1" value="8">
-            <b id="newPerDayVal">8</b>
-          </div>
+          <h3>每天的学习量</h3>
+          <p class="muted">每天最多 3 轮，每轮 5 个新词，共 15 个。复习不占体力，但计入 3 轮；错题复习每天一次，不占轮次。</p>
+          <div class="rhythm-row">⚡ 15 体力 · 3 轮</div>
         </section>
 
         <section class="card">
@@ -195,8 +199,8 @@
         </section>
 
         <section class="card">
-          <h3>墙纸</h3>
-          <p class="muted">换一面心情。</p>
+          <h3>当前房间的墙纸</h3>
+          <p class="muted">每个房间可以换不同的墙纸。</p>
           <div class="theme-row" id="themeRow"></div>
         </section>
 
@@ -239,10 +243,21 @@
     <div class="onboard-emoji">🏡</div>
     <h2>欢迎来到单词小屋</h2>
     <p>每答对一个单词，就赚到 <b>一块砖</b>。<br>用砖块买家具，把小屋变成你喜欢的样子。</p>
+    <p class="muted">每天 3 轮 · 每轮 5 个新词 · 体力 15</p>
     <input class="text-input" id="houseNameInput" maxlength="12" placeholder="给小屋起个名字（MY ROOM）" autocomplete="off" spellcheck="false">
     <p class="muted">先选一面墙纸吧：</p>
     <div class="theme-row" id="onboardThemes"></div>
     <button class="btn primary big" id="btnOnboardStart">开始我的小屋</button>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="expandBackdrop">
+  <div class="modal">
+    <div class="onboard-emoji" id="expandEmoji">🛋️</div>
+    <h2 id="expandTitle">扩建「客厅」</h2>
+    <p id="expandDesc">花 80 块砖，多一间房，可以摆下更多家具。</p>
+    <button class="btn primary big" id="btnExpand">花 80 🧱 扩建</button>
+    <button class="btn soft" id="btnExpandCancel">再想想</button>
   </div>
 </div>
 

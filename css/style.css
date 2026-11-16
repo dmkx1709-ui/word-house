@@ -458,6 +458,42 @@ body.in-session #main { height: 100%; }
 .room[data-sky="sunset"] .sun-patch { opacity: .55; background: radial-gradient(ellipse at 30% 20%, rgba(255, 205, 140, .8), transparent 70%); }
 .room[data-sky="night"] .curtain { filter: brightness(.9); }
 
+/* ---------- 房间标签 / 体力 ---------- */
+.room-tabs {
+  flex: none; display: flex; gap: 7px; overflow-x: auto;
+  padding: 2px 1px 8px; scrollbar-width: none;
+}
+.room-tabs::-webkit-scrollbar { display: none; }
+.room-tab {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  border: 2px solid #EBD9BE; background: #FFFCF6; color: #7F6A57;
+  border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-weight: 800;
+  transition: transform .1s, background .15s, border-color .15s;
+}
+.room-tab:active { transform: scale(.96); }
+.room-tab.active { background: #6FA368; border-color: #5C8B57; color: #fff; box-shadow: 0 3px 0 #5A8754; }
+.room-tab.locked { border-style: dashed; opacity: .8; }
+.room-tab .room-emoji { font-size: 14px; }
+.room-tab .cost { font-size: 10px; color: #9A6A42; font-weight: 800; }
+.room-tab.active .cost { color: #FFF3D6; }
+
+.energy-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.energy-pill, .round-pill {
+  font-size: 12.5px; font-weight: 800; color: #7C6654;
+  background: #FFF6E6; border: 1px dashed #E8CFA9; border-radius: 999px; padding: 5px 10px;
+}
+.energy-pill b { color: #B8792F; font-size: 14px; }
+.round-pill b { color: #5E8F57; font-size: 14px; }
+.energy-pill .muted, .round-pill .muted { font-size: 10.5px; color: #A08B73; }
+.btn.primary.big:disabled { opacity: .55; box-shadow: none; filter: grayscale(.35); cursor: default; }
+.mistake-btn { width: 100%; background: #FFF5EF; border-color: #F0C6B6; color: #9C5A45; font-size: 13px; }
+.mistake-btn b { color: #B4523A; font-size: 14px; }
+.badge.mistake { background: #FDE6E0; color: #B4523A; }
+.rhythm-row {
+  font-size: 13px; font-weight: 800; color: #8A6A4D; background: #FFF6E6;
+  border: 1px dashed #E8CFA9; padding: 7px 10px; border-radius: 12px; text-align: center;
+}
+
 /* ---------- 首页下半部分 ---------- */
 .home-panel { flex: none; padding: 13px 2px 0; display: flex; flex-direction: column; gap: 9px; }
 .progress-row { display: flex; flex-direction: column; gap: 5px; }
@@ -515,6 +551,7 @@ body.in-session #main { height: 100%; }
 .teach-zh { font-size: 19px; color: #7C6654; }
 .teach-tag { font-size: 11px; letter-spacing: .18em; color: #B58A5E; font-weight: 800; text-transform: uppercase; }
 .teach-card .btn { width: 100%; margin-top: 12px; }
+.learn-counter { font-size: 12px; color: var(--muted); font-weight: 600; text-align: center; margin-top: 2px; }
 
 .speak-btn {
   border: 0; width: 64px; height: 64px; border-radius: 50%;

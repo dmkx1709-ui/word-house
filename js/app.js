@@ -16,6 +16,19 @@
     30 * 24 * 60 * 60 * 1000
   ];
 
+  var ROOMS = [
+    { id: 'main', name: '卧室', emoji: '🛏️', cost: 0, theme: 'cream' },
+    { id: 'living', name: '客厅', emoji: '🛋️', cost: 80, theme: 'mint' },
+    { id: 'study', name: '书房', emoji: '📚', cost: 150, theme: 'pink' },
+    { id: 'attic', name: '阁楼', emoji: '🪟', cost: 240, theme: 'cream' }
+  ];
+  var DAILY_ENERGY = 15;
+  var MAX_ROUNDS = 3;
+  var NEW_PER_ROUND = 5;
+  var REVIEWS_PER_ROUND = 8;
+  var MISTAKE_PER_SESSION = 5;
+  var MISTAKE_BRICKS_PER_DAY = 5;
+
   var state = null;
   var session = null;
   var wordMap = {};
@@ -59,24 +72,34 @@
   }
 
   /* ---------------- 状态 ---------------- */
+  function defaultRooms() {
+    var out = {};
+    ROOMS.forEach(function (r) {
+      out[r.id] = { unlocked: r.id === 'main', theme: r.theme };
+    });
+    return out;
+  }
+
   function defaultState() {
     return {
       v: 1,
       bricks: 20,
       owned: ['f_rug', 'f_cushion', 'f_plant'],
       placed: [
-        { item: 'f_rug', x: 48, y: 83 },
-        { item: 'f_cushion', x: 31, y: 76 },
-        { item: 'f_plant', x: 89, y: 72 }
+        { item: 'f_rug', x: 48, y: 83, room: 'main' },
+        { item: 'f_cushion', x: 31, y: 76, room: 'main' },
+        { item: 'f_plant', x: 89, y: 72, room: 'main' }
       ],
       theme: 'cream',
+      rooms: defaultRooms(),
+      currentRoom: 'main',
       sky: 'day',
       lights: true,
       houseName: 'MY ROOM',
       settings: { newPerDay: 8, startLesson: 1 },
       progress: {},
       customWords: [],
-      stats: { days: [], sessions: 0, correct: 0, bricksEarned: 0, extraDate: '', extraCount: 0 },
+      stats: { days: [], sessions: 0, correct: 0, bricksEarned: 0, extraDate: '', extraCount: 0, dayKey: '', roundsToday: 0, mistakeSessions: 0, mistakeBricks: 0 },
       onboarded: false
     };
   }
@@ -100,6 +123,31 @@
     if (['day', 'sunset', 'night'].indexOf(s.sky) < 0) s.sky = 'day';
     s.lights = !!s.lights;
     s.houseName = (typeof s.houseName === 'string' && s.houseName.trim()) ? s.houseName.trim().slice(0, 12) : 'MY ROOM';
+
+    var rooms = defaultRooms();
+    var rawRooms = raw.rooms || {};
+    ROOMS.forEach(function (r) {
+      var old = rawRooms[r.id];
+      if (old) {
+        rooms[r.id].unlocked = r.id === 'main' ? true : !!old.unlocked;
+        if (['cream', 'mint', 'pink'].indexOf(old.theme) >= 0) rooms[r.id].theme = old.theme;
+      }
+    });
+    // 旧存档：把原来的全局墙纸当作卧室墙纸
+    if (!raw.rooms && ['cream', 'mint', 'pink'].indexOf(s.theme) >= 0) rooms.main.theme = s.theme;
+    s.rooms = rooms;
+    if (!s.currentRoom || !s.rooms[s.currentRoom] || !s.rooms[s.currentRoom].unlocked) s.currentRoom = 'main';
+    s.placed.forEach(function (p) { if (!p.room || !s.rooms[p.room]) p.room = 'main'; });
+    s.stats.dayKey = s.stats.dayKey || '';
+    s.stats.roundsToday = Number(s.stats.roundsToday) || 0;
+    s.stats.mistakeSessions = Number(s.stats.mistakeSessions) || 0;
+    s.stats.mistakeBricks = Number(s.stats.mistakeBricks) || 0;
+    Object.keys(s.progress).forEach(function (id) {
+      var p = s.progress[id];
+      if (!p || typeof p !== 'object') return;
+      p.relearnStep = Number(p.relearnStep) || 0;
+      p.relearnDue = Number(p.relearnDue) || 0;
+    });
     return s;
   }
 
@@ -117,7 +165,58 @@
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 忽略存储错误 */ }
   }
 
+  function ensureDay() {
+    var k = todayKey();
+    if (state.stats.dayKey !== k) {
+      state.stats.dayKey = k;
+      state.stats.roundsToday = 0;
+      state.stats.mistakeSessions = 0;
+      state.stats.mistakeBricks = 0;
+      save();
+    }
+  }
+
+  function roundsToday() {
+    ensureDay();
+    return Number(state.stats.roundsToday) || 0;
+  }
+
+  function introducedTodayCount() {
+    var k = todayKey();
+    var words = allWords();
+    var n = 0;
+    for (var i = 0; i < words.length; i++) {
+      var p = state.progress[words[i].id];
+      if (p && p.firstSeen === k && (p.box || 0) < 5) n++;
+    }
+    return n;
+  }
+
   function allWords() { return WORDS.concat(state.customWords || []); }
+
+  function mistakeSessionsToday() {
+    ensureDay();
+    return Number(state.stats.mistakeSessions) || 0;
+  }
+
+  function dueMistakeWords() {
+    var now = Date.now();
+    return allWords().filter(function (w) {
+      var p = state.progress[w.id];
+      return p && (p.relearnStep || 0) > 0 && (p.relearnDue || 0) <= now;
+    }).sort(function (a, b) {
+      return (state.progress[a.id].relearnDue || 0) - (state.progress[b.id].relearnDue || 0);
+    });
+  }
+
+  function activeMistakeCount() {
+    var n = 0;
+    allWords().forEach(function (w) {
+      var p = state.progress[w.id];
+      if (p && (p.relearnStep || 0) > 0) n++;
+    });
+    return n;
+  }
 
   function refreshWordMap() {
     wordMap = {};
@@ -227,22 +326,34 @@
     if (h && !h.classList.contains('fade')) h.classList.add('fade');
   }
 
-  /* ---------------- 主题 / 天空 / 灯 ---------------- */
+  /* ---------------- 主题 / 房间 / 天空 / 灯 ---------------- */
+  function currentRoomTheme() {
+    var r = state.rooms && state.rooms[state.currentRoom];
+    return (r && r.theme) || 'cream';
+  }
+
+  function roomById(id) {
+    for (var i = 0; i < ROOMS.length; i++) if (ROOMS[i].id === id) return ROOMS[i];
+    return null;
+  }
+
   function applyTheme() {
     var room = byId('room');
-    room.dataset.theme = state.theme;
+    room.dataset.theme = currentRoomTheme();
     refreshThemeSwatches();
   }
 
   function refreshThemeSwatches() {
+    var theme = currentRoomTheme();
     $$('.theme-swatch').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.themeId === state.theme);
+      b.classList.toggle('active', b.dataset.themeId === theme);
     });
   }
 
   function themeSwatchHtml() {
+    var theme = currentRoomTheme();
     return THEMES.map(function (t) {
-      return '<button class="theme-swatch' + (state.theme === t.id ? ' active' : '') + '" data-theme-id="' + t.id + '">' +
+      return '<button class="theme-swatch' + (theme === t.id ? ' active' : '') + '" data-theme-id="' + t.id + '">' +
         '<i style="background:' + t.swatch + '"></i><span>' + escapeHtml(t.name) + '</span></button>';
     }).join('');
   }
@@ -261,6 +372,84 @@
     if (settingsInput) settingsInput.value = state.houseName;
     var onboardInput = byId('houseNameInput');
     if (onboardInput && !onboardInput.value) onboardInput.value = state.houseName;
+  }
+
+  function renderRoomTabs() {
+    var wrap = byId('roomTabs');
+    if (!wrap) return;
+    wrap.innerHTML = ROOMS.map(function (r) {
+      var rs = state.rooms[r.id] || {};
+      var unlocked = r.id === 'main' || !!rs.unlocked;
+      var active = state.currentRoom === r.id;
+      return '<button class="room-tab' + (active ? ' active' : '') + (unlocked ? '' : ' locked') + '" data-room="' + r.id + '">' +
+        '<span class="room-emoji">' + (unlocked ? r.emoji : '🔒') + '</span>' +
+        '<span>' + escapeHtml(r.name) + '</span>' +
+        (unlocked ? '' : '<span class="cost">🧱 ' + r.cost + '</span>') +
+        '</button>';
+    }).join('');
+  }
+
+  function switchRoom(id) {
+    var conf = roomById(id);
+    if (!conf) return;
+    var rs = state.rooms[id];
+    if (!rs || !rs.unlocked) { openExpand(id); return; }
+    if (state.currentRoom === id) return;
+    state.currentRoom = id;
+    pendingPlace = null;
+    byId('room').classList.remove('placing');
+    clearSelection();
+    closeSheet();
+    save();
+    renderHome();
+    sfxPop();
+    toast('来到「' + conf.name + '」');
+  }
+
+  var expandTarget = null;
+
+  function openExpand(id) {
+    var conf = roomById(id);
+    if (!conf) return;
+    var rs = state.rooms[id];
+    if (rs && rs.unlocked) { switchRoom(id); return; }
+    expandTarget = id;
+    var enough = state.bricks >= conf.cost;
+    byId('expandEmoji').textContent = conf.emoji;
+    byId('expandTitle').textContent = '扩建「' + conf.name + '」';
+    byId('expandDesc').textContent = enough
+      ? '花 ' + conf.cost + ' 块砖，多一间' + conf.name + '，可以摆下更多家具。'
+      : '需要 ' + conf.cost + ' 块砖，还差 ' + (conf.cost - state.bricks) + ' 块。再背几个词吧。';
+    var btn = byId('btnExpand');
+    btn.textContent = enough ? '花 ' + conf.cost + ' 🧱 扩建' : '还差 ' + (conf.cost - state.bricks) + ' 🧱';
+    btn.disabled = !enough;
+    byId('expandBackdrop').classList.remove('hidden');
+  }
+
+  function closeExpand() {
+    expandTarget = null;
+    byId('expandBackdrop').classList.add('hidden');
+  }
+
+  function confirmExpand() {
+    if (!expandTarget) return;
+    var id = expandTarget;
+    var conf = roomById(id);
+    var rs = state.rooms[id];
+    if (!conf || !rs) return;
+    if (!rs.unlocked) {
+      if (state.bricks < conf.cost) { toast('还差 ' + (conf.cost - state.bricks) + ' 块砖'); return; }
+      state.bricks -= conf.cost;
+      rs.unlocked = true;
+      save();
+    }
+    closeExpand();
+    state.currentRoom = id;
+    save();
+    renderHome();
+    sfxPop();
+    confetti(60);
+    toast('新房间「' + conf.name + '」打开啦！');
   }
 
   function setSky(mode) {
@@ -296,24 +485,31 @@
     var due = 0;
     words.forEach(function (w) {
       var p = state.progress[w.id];
-      if (p && p.box < 5 && p.due <= now) due++;
+      if (p && p.box < 5 && (p.relearnStep || 0) === 0 && p.due <= now) due++;
     });
-    var introducedToday = words.filter(function (w) {
-      var p = state.progress[w.id];
-      return p && p.firstSeen === todayKey();
-    }).length;
+    var introduced = introducedTodayCount();
+    var energyLeft = Math.max(0, DAILY_ENERGY - introduced);
     var remainingNew = words.filter(function (w) {
       if (state.progress[w.id]) return false;
       if (w.lesson && w.lesson < state.settings.startLesson) return false;
       return true;
     }).length;
-    var fresh = clamp(state.settings.newPerDay - introducedToday, 0, remainingNew);
-    return { due: due, fresh: fresh };
+    var fresh = Math.min(NEW_PER_ROUND, energyLeft, remainingNew);
+    var dueShown = Math.min(due, REVIEWS_PER_ROUND);
+    var roundsUsed = roundsToday();
+    return {
+      due: due,
+      dueShown: dueShown,
+      fresh: fresh,
+      energyLeft: energyLeft,
+      roundsUsed: roundsUsed,
+      roundsLeft: Math.max(0, MAX_ROUNDS - roundsUsed)
+    };
   }
 
   function hasWorkLeft() {
     var prev = sessionPreview();
-    return prev.due > 0 || prev.fresh > 0;
+    return prev.roundsLeft > 0 && (prev.due > 0 || prev.fresh > 0);
   }
 
   function canFreePractice() {
@@ -324,21 +520,37 @@
 
   function renderHome() {
     updateBricks();
-    var room = byId('room');
-    room.dataset.theme = state.theme;
-    room.dataset.sky = state.sky;
+    applyTheme();
+    byId('room').dataset.sky = state.sky;
     applyLights();
+    renderRoomTabs();
     renderRoom();
 
     var cs = completionStats();
     byId('completionText').textContent = cs.owned + ' / ' + cs.total;
     byId('completionBar').style.width = cs.pct + '%';
 
+    var prev = sessionPreview();
+    byId('energyLeft').textContent = prev.energyLeft;
+    byId('roundsUsed').textContent = prev.roundsUsed;
+
+    var roomCount = state.placed.filter(function (p) {
+      return (p.room || 'main') === state.currentRoom;
+    }).length;
+    var lockedRoom = null;
+    for (var i = 0; i < ROOMS.length; i++) {
+      if (ROOMS[i].cost > 0 && !state.rooms[ROOMS[i].id].unlocked) { lockedRoom = ROOMS[i]; break; }
+    }
+
     var unowned = FURNITURE.filter(function (f) { return state.owned.indexOf(f.id) < 0; })
       .sort(function (a, b) { return a.price - b.price; });
     var next = unowned[0];
     var goal = byId('goalLine');
-    if (!next) {
+    if (roomCount >= 12 && lockedRoom) {
+      goal.textContent = state.bricks >= lockedRoom.cost
+        ? ('可以扩建「' + lockedRoom.name + '」啦，点房间上方的锁 🔒')
+        : ('这间屋有点挤了，再攒 ' + (lockedRoom.cost - state.bricks) + ' 🧱 扩建' + lockedRoom.name);
+    } else if (!next) {
       goal.textContent = '家具都收集齐了，小屋被你装得满满当当！';
     } else if (state.bricks >= next.price) {
       goal.textContent = '现在就能买下 ' + next.emoji + ' ' + next.name + ' 啦';
@@ -346,17 +558,33 @@
       goal.textContent = '再答对 ' + (next.price - state.bricks) + ' 个词，就能买下 ' + next.emoji + ' ' + next.name;
     }
 
-    var prev = sessionPreview();
     var label = byId('startLabel');
     var sub = byId('startSub');
-    if (prev.due + prev.fresh > 0) {
-      label.textContent = '开始今天的小任务';
-      sub.textContent = prev.fresh > 0
-        ? ('新词 ' + prev.fresh + ' · 复习 ' + prev.due)
-        : ('复习 ' + prev.due + ' 个词');
+    var startBtn = byId('btnStart');
+    if (prev.roundsUsed >= MAX_ROUNDS) {
+      startBtn.disabled = true;
+      label.textContent = '今天的 ' + MAX_ROUNDS + ' 轮学完啦';
+      sub.textContent = '明天再来，小屋会等你';
     } else {
-      label.textContent = '自由练习一小轮';
-      sub.textContent = '今天的词都复习完啦';
+      startBtn.disabled = false;
+      if (prev.due + prev.fresh > 0) {
+        label.textContent = '开始今天的小任务';
+        sub.textContent = prev.fresh > 0
+          ? ('新词 ' + prev.fresh + ' · 复习 ' + prev.dueShown)
+          : ('复习 ' + prev.dueShown + ' 个词');
+      } else {
+        label.textContent = '自由练习一小轮';
+        sub.textContent = '今天的词都复习完啦';
+      }
+    }
+
+    var dueMistakes = dueMistakeWords();
+    var mBtn = byId('btnMistakes');
+    if (dueMistakes.length > 0 && mistakeSessionsToday() < 1) {
+      mBtn.classList.remove('hidden');
+      byId('mistakeCount').textContent = dueMistakes.length;
+    } else {
+      mBtn.classList.add('hidden');
     }
   }
 
@@ -370,7 +598,9 @@
     var wrap = byId('roomItems');
     if (!wrap) return;
     wrap.innerHTML = '';
+    var current = state.currentRoom || 'main';
     state.placed.forEach(function (p) {
+      if ((p.room || 'main') !== current) return;
       var item = furnMap[p.item];
       if (!item) return;
       var el = document.createElement('div');
@@ -487,8 +717,9 @@
     if (existing) {
       existing.x = pos.x;
       existing.y = pos.y;
+      existing.room = state.currentRoom;
     } else {
-      state.placed.push({ item: itemId, x: pos.x, y: pos.y });
+      state.placed.push({ item: itemId, x: pos.x, y: pos.y, room: state.currentRoom });
     }
     pendingPlace = null;
     byId('room').classList.remove('placing');
@@ -640,18 +871,14 @@
     var due = [];
     words.forEach(function (w) {
       var p = state.progress[w.id];
-      if (p && p.box < 5 && p.due <= now) due.push(w);
+      if (p && p.box < 5 && (p.relearnStep || 0) === 0 && p.due <= now) due.push(w);
     });
     due.sort(function (a, b) { return state.progress[a.id].due - state.progress[b.id].due; });
-    due = due.slice(0, 20);
+    due = due.slice(0, REVIEWS_PER_ROUND);
 
-    var introducedToday = words.filter(function (w) {
-      var p = state.progress[w.id];
-      return p && p.firstSeen === todayKey();
-    }).length;
-    var cap = Math.max(0, state.settings.newPerDay - introducedToday);
-    var learnedCount = words.filter(function (w) { return !!state.progress[w.id]; }).length;
-    if (learnedCount === 0) cap = Math.min(cap, 5);
+    var introduced = introducedTodayCount();
+    var energyLeft = Math.max(0, DAILY_ENERGY - introduced);
+    var cap = Math.min(NEW_PER_ROUND, energyLeft);
 
     var freshPool = words.filter(function (w) {
       if (state.progress[w.id]) return false;
@@ -684,16 +911,26 @@
   }
 
   function beginSession() {
-    var built = buildSession();
-    if (!built.items.length) { toast('词库还是空的，先去设置里加几个词吧'); return; }
-    if (built.free && !canFreePractice()) {
-      toast('今天已经练得够多啦，明天再来吧');
+    ensureDay();
+    if (roundsToday() >= MAX_ROUNDS) {
+      toast('今天的 ' + MAX_ROUNDS + ' 轮学完啦，明天再来吧');
+      renderHome();
       return;
     }
+    var built = buildSession();
+    if (!built.items.length) { toast('词库还是空的，先去设置里加几个词吧'); return; }
+    state.stats.roundsToday = roundsToday() + 1;
+    save();
+    var newItems = built.items.filter(function (it) { return it.isNew; });
+    var reviewItems = built.items.filter(function (it) { return !it.isNew; });
     session = {
-      queue: built.items,
+      queue: [],
+      newItems: newItems,
+      reviewItems: reviewItems,
+      phase: newItems.length ? 'learn' : 'quiz',
+      learnIdx: 0,
       idx: 0,
-      planned: built.items.length,
+      planned: 0,
       free: built.free,
       correctCount: 0,
       introduced: new Set(),
@@ -706,7 +943,103 @@
     byId('sessionBricks').textContent = '0';
     showScreen('learn');
     updateBricks();
+    if (newItems.length) renderLearnCard();
+    else startQuiz();
+  }
+
+  function startQuiz() {
+    if (!session) return;
+    session.phase = 'quiz';
+    session.newItems.forEach(function (it) { it.taught = true; });
+    session.queue = shuffle(session.reviewItems.concat(session.newItems));
+    session.idx = 0;
+    session.planned = session.queue.length;
+    session.locked = false;
+    byId('learnBar').style.width = '0%';
     renderCurrent();
+  }
+
+  function beginMistakeSession() {
+    ensureDay();
+    if (mistakeSessionsToday() >= 1) {
+      toast('今天已经复习过错题啦，明天再来');
+      return;
+    }
+    var words = dueMistakeWords();
+    if (!words.length) {
+      toast('现在没有到期的错题');
+      return;
+    }
+    var items = words.slice(0, MISTAKE_PER_SESSION).map(function (w) {
+      return { word: w, isNew: false, taught: true, retries: 0 };
+    });
+    state.stats.mistakeSessions = (state.stats.mistakeSessions || 0) + 1;
+    save();
+    session = {
+      queue: [],
+      newItems: [],
+      reviewItems: items,
+      phase: 'quiz',
+      learnIdx: 0,
+      idx: 0,
+      planned: 0,
+      free: false,
+      mistake: true,
+      correctCount: 0,
+      introduced: new Set(),
+      bricks: 0,
+      locked: false,
+      token: Date.now()
+    };
+    document.body.classList.add('in-session');
+    byId('feedbackBar').classList.add('hidden');
+    byId('sessionBricks').textContent = '0';
+    showScreen('learn');
+    updateBricks();
+    startQuiz();
+  }
+
+  function renderLearnCard() {
+    if (!session || session.phase !== 'learn') return;
+    if (session.learnIdx >= session.newItems.length) { startQuiz(); return; }
+
+    var item = session.newItems[session.learnIdx];
+    var w = item.word;
+    var total = session.newItems.length;
+    var n = session.learnIdx + 1;
+    var last = n === total;
+
+    session.introduced.add(w.id);
+    session.locked = false;
+    byId('feedbackBar').classList.add('hidden');
+    byId('feedbackBar').innerHTML = '';
+    byId('learnBar').style.width = Math.round(n / total * 100) + '%';
+
+    byId('learnBody').innerHTML =
+      '<div class="teach-card">' +
+      '<div class="teach-tag">' + (w.lesson ? '第 ' + w.lesson + ' 课 · ' : '') + '新朋友</div>' +
+      '<div class="teach-emoji">' + escapeHtml(w.emoji || '🧩') + '</div>' +
+      '<div class="teach-word">' + escapeHtml(w.en) + '</div>' +
+      '<div class="teach-zh">' + escapeHtml(w.zh) + '</div>' +
+      '<button class="speak-btn" id="btnTeachSpeak" aria-label="听发音">🔊</button>' +
+      '<div class="learn-counter">第 ' + n + ' / ' + total + ' 个新词 · 先认识，等会儿一起考</div>' +
+      '<button class="btn primary big" id="btnKnowIt">' + (last ? '学完啦，开始答题' : '认识啦，下一个') + '</button>' +
+      (last ? '<div class="spell-hint">接下来会打乱顺序考你，不会按这个顺序出题</div>' : '') +
+      '</div>';
+
+    byId('btnTeachSpeak').addEventListener('click', function () { speak(w.en); });
+    byId('btnKnowIt').addEventListener('click', function () {
+      if (!session || session.phase !== 'learn') return;
+      if (session.newItems[session.learnIdx] !== item) return;
+      session.locked = true;
+      item.taught = true;
+      session.learnIdx++;
+      if (session.learnIdx >= session.newItems.length) startQuiz();
+      else renderLearnCard();
+    });
+
+    setTimeout(function () { speak(w.en); }, 260);
+    byId('learnBody').scrollTop = 0;
   }
 
   function renderCurrent() {
@@ -718,8 +1051,7 @@
     byId('feedbackBar').innerHTML = '';
     var pct = Math.min(99, Math.round(session.idx / Math.max(1, session.planned) * 100));
     byId('learnBar').style.width = pct + '%';
-    if (item.isNew && !item.taught) renderTeach(item);
-    else renderQuestion(item);
+    renderQuestion(item);
     var body = byId('learnBody');
     body.scrollTop = 0;
   }
@@ -956,13 +1288,23 @@
   }
 
   function awardBrick(sourceEl) {
-    state.bricks++;
-    session.bricks++;
+    var getBrick = true;
+    if (session && session.mistake) {
+      if ((state.stats.mistakeBricks || 0) >= MISTAKE_BRICKS_PER_DAY) {
+        getBrick = false;
+      } else {
+        state.stats.mistakeBricks = (state.stats.mistakeBricks || 0) + 1;
+      }
+    }
     state.stats.correct = (state.stats.correct || 0) + 1;
-    state.stats.bricksEarned = (state.stats.bricksEarned || 0) + 1;
+    if (getBrick) {
+      state.bricks++;
+      session.bricks++;
+      state.stats.bricksEarned = (state.stats.bricksEarned || 0) + 1;
+    }
     save();
     updateBricks();
-    flyBrick(sourceEl);
+    if (getBrick) flyBrick(sourceEl);
   }
 
   function flyBrick(fromEl) {
@@ -1040,19 +1382,40 @@
     if (!p) {
       p = state.progress[word.id] = {
         box: 0, due: now, firstSeen: todayKey(), lastSeen: '',
-        seen: 0, correct: 0, wrong: 0
+        seen: 0, correct: 0, wrong: 0, relearnStep: 0, relearnDue: 0
       };
     }
     p.seen = (p.seen || 0) + 1;
     p.lastSeen = todayKey();
+    p.relearnStep = Number(p.relearnStep) || 0;
+    p.relearnDue = Number(p.relearnDue) || 0;
+
     if (good) {
       p.correct = (p.correct || 0) + 1;
-      p.box = Math.min(5, (p.box || 0) + 1);
-      p.due = now + INTERVALS[p.box];
+      if (p.relearnStep > 0) {
+        if (p.relearnStep === 1) {
+          p.relearnStep = 2;
+          p.relearnDue = now + INTERVALS[1];
+        } else if (p.relearnStep === 2) {
+          p.relearnStep = 3;
+          p.relearnDue = now + INTERVALS[2];
+        } else {
+          p.relearnStep = 0;
+          p.relearnDue = 0;
+          p.box = Math.min(2, Math.max(1, p.box || 0));
+          p.due = now + INTERVALS[p.box];
+        }
+        if (p.relearnStep > 0) p.due = p.relearnDue;
+      } else {
+        p.box = Math.min(5, (p.box || 0) + 1);
+        p.due = now + INTERVALS[p.box];
+      }
     } else {
       p.wrong = (p.wrong || 0) + 1;
+      p.relearnStep = 1;
+      p.relearnDue = now + INTERVALS[0];
       p.box = Math.max(0, (p.box || 0) - 1);
-      p.due = now + INTERVALS[0];
+      p.due = p.relearnDue;
     }
     save();
   }
@@ -1063,31 +1426,32 @@
     var key = todayKey();
     if (state.stats.days.indexOf(key) < 0) state.stats.days.push(key);
     state.stats.sessions = (state.stats.sessions || 0) + 1;
-    if (s.free) {
-      if (state.stats.extraDate !== key) {
-        state.stats.extraDate = key;
-        state.stats.extraCount = 0;
-      }
-      state.stats.extraCount = (state.stats.extraCount || 0) + 1;
-    }
     save();
     document.body.classList.remove('in-session');
 
     byId('sumCorrect').textContent = s.correctCount;
     byId('sumBricks').textContent = s.bricks;
     byId('sumNew').textContent = s.introduced.size;
-    byId('summaryEmoji').textContent = s.correctCount > 0 ? '🎉' : '🌙';
-    byId('summaryTitle').textContent = s.correctCount > 0 ? '今天的小屋又亮了一点' : '慢慢来，小屋不会跑';
 
-    var msg;
-    if (s.free) msg = '这是自由练习，答对的词也会变成砖块。';
-    else if (s.correctCount === 0) msg = '没关系，明天它们还会来找你玩。';
-    else if (s.introduced.size > 0) msg = '认识了 ' + s.introduced.size + ' 个新朋友，去小屋看看还缺什么吧。';
-    else msg = '复习做得很稳，小屋又舒服了一点。';
-    byId('summaryMsg').textContent = msg;
+    if (s.mistake) {
+      byId('summaryEmoji').textContent = '📕';
+      byId('summaryTitle').textContent = '错题复习完成';
+      byId('summaryMsg').textContent = '这些坑补上了，明天再看看它们还记不记得。';
+      byId('btnSummaryAgain').classList.add('hidden');
+    } else {
+      byId('summaryEmoji').textContent = s.correctCount > 0 ? '🎉' : '🌙';
+      byId('summaryTitle').textContent = s.correctCount > 0 ? '今天的小屋又亮了一点' : '慢慢来，小屋不会跑';
 
-    var again = hasWorkLeft() || (s.free ? canFreePractice() : true);
-    byId('btnSummaryAgain').classList.toggle('hidden', !again);
+      var msg;
+      if (s.free) msg = '这是自由练习，答对的词也会变成砖块。';
+      else if (s.correctCount === 0) msg = '没关系，明天它们还会来找你玩。';
+      else if (s.introduced.size > 0) msg = '认识了 ' + s.introduced.size + ' 个新朋友，去小屋看看还缺什么吧。';
+      else msg = '复习做得很稳，小屋又舒服了一点。';
+      byId('summaryMsg').textContent = msg;
+
+      var again = hasWorkLeft();
+      byId('btnSummaryAgain').classList.toggle('hidden', !again);
+    }
 
     session = null;
     byId('feedbackBar').classList.add('hidden');
@@ -1098,7 +1462,7 @@
 
   function quitSession() {
     if (!session) { showScreen('home'); renderHome(); return; }
-    if (session.idx > 0) {
+    if (session.idx > 0 || (session.learnIdx || 0) > 0) {
       if (!window.confirm('先不学了吗？已经赚到的砖块会保存下来。')) return;
     }
     session = null;
@@ -1193,6 +1557,7 @@
   /* ---------------- 单词本 ---------------- */
   function wordStatus(w) {
     var p = state.progress[w.id];
+    if (p && (p.relearnStep || 0) > 0) return { key: 'mistake', label: '错题' };
     if (!p) return { key: 'new', label: '新词' };
     if (p.box >= 5) return { key: 'mastered', label: '已掌握' };
     if (p.due <= Date.now()) return { key: 'learning', label: '今天复习' };
@@ -1201,16 +1566,18 @@
 
   function renderWordbook() {
     var words = allWords();
-    var newCount = 0, learning = 0, mastered = 0;
+    var newCount = 0, learning = 0, mastered = 0, mistakeCount = 0;
     words.forEach(function (w) {
       var st = wordStatus(w);
       if (st.key === 'new') newCount++;
       else if (st.key === 'mastered') mastered++;
+      else if (st.key === 'mistake') mistakeCount++;
       else learning++;
     });
     byId('wordbookStats').innerHTML =
       '<div class="stat"><b>' + newCount + '</b><span>新词</span></div>' +
       '<div class="stat"><b>' + learning + '</b><span>学习中</span></div>' +
+      '<div class="stat"><b>' + mistakeCount + '</b><span>错题</span></div>' +
       '<div class="stat"><b>' + mastered + '</b><span>已掌握</span></div>';
 
     var q = wordQuery.trim().toLowerCase();
@@ -1219,6 +1586,7 @@
       if (wordFilter === 'new' && st.key !== 'new') return false;
       if (wordFilter === 'learning' && st.key !== 'learning') return false;
       if (wordFilter === 'mastered' && st.key !== 'mastered') return false;
+      if (wordFilter === 'mistake' && st.key !== 'mistake') return false;
       if (q && w.en.toLowerCase().indexOf(q) < 0 && w.zh.indexOf(q) < 0) return false;
       return true;
     });
@@ -1232,7 +1600,9 @@
       var st = wordStatus(w);
       var p = state.progress[w.id];
       var dueText = '';
-      if (p && p.box > 0 && p.box < 5) {
+      if (p && (p.relearnStep || 0) > 0) {
+        dueText = '重学第 ' + p.relearnStep + ' 步';
+      } else if (p && p.box > 0 && p.box < 5) {
         var d = daysUntil(p.due);
         dueText = d === 0 ? '该复习啦' : (d + ' 天后复习');
       }
@@ -1262,12 +1632,14 @@
     if (!p) {
       state.progress[id] = {
         box: 5, due: Date.now() + INTERVALS[5], firstSeen: todayKey(),
-        lastSeen: todayKey(), seen: 0, correct: 0, wrong: 0
+        lastSeen: todayKey(), seen: 0, correct: 0, wrong: 0, relearnStep: 0, relearnDue: 0
       };
     } else {
       p.box = 5;
       p.due = Date.now() + INTERVALS[5];
       p.lastSeen = todayKey();
+      p.relearnStep = 0;
+      p.relearnDue = 0;
     }
     save();
     renderWordbook();
@@ -1278,8 +1650,6 @@
 
   /* ---------------- 设置 / 导入导出 ---------------- */
   function renderSettings() {
-    byId('newPerDay').value = state.settings.newPerDay;
-    byId('newPerDayVal').textContent = state.settings.newPerDay;
     byId('startLesson').value = state.settings.startLesson;
     byId('startLessonVal').textContent = state.settings.startLesson;
     byId('themeRow').innerHTML = themeSwatchHtml();
@@ -1448,6 +1818,20 @@
     });
 
     byId('btnStart').addEventListener('click', beginSession);
+    byId('btnMistakes').addEventListener('click', beginMistakeSession);
+    byId('roomTabs').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-room]');
+      if (!b) return;
+      var id = b.dataset.room;
+      var rs = state.rooms[id];
+      if (rs && rs.unlocked) switchRoom(id);
+      else openExpand(id);
+    });
+    byId('btnExpand').addEventListener('click', confirmExpand);
+    byId('btnExpandCancel').addEventListener('click', closeExpand);
+    byId('expandBackdrop').addEventListener('click', function (e) {
+      if (e.target === byId('expandBackdrop')) closeExpand();
+    });
     byId('btnShop').addEventListener('click', function () {
       renderShop();
       showScreen('shop');
@@ -1520,14 +1904,6 @@
       if (known) markKnown(known.dataset.known);
     });
 
-    byId('newPerDay').addEventListener('input', function (e) {
-      var v = clamp(Number(e.target.value) || 8, 4, 15);
-      state.settings.newPerDay = v;
-      byId('newPerDayVal').textContent = v;
-      save();
-      renderHome();
-    });
-
     byId('houseName').addEventListener('input', function (e) {
       var v = e.target.value.slice(0, 12);
       state.houseName = v.trim() || 'MY ROOM';
@@ -1549,6 +1925,8 @@
       c.addEventListener('click', function (e) {
         var b = e.target.closest('[data-theme-id]');
         if (!b) return;
+        if (!state.rooms[state.currentRoom]) return;
+        state.rooms[state.currentRoom].theme = b.dataset.themeId;
         state.theme = b.dataset.themeId;
         applyTheme();
         save();

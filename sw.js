@@ -1,4 +1,4 @@
-const CACHE = 'wordhouse-v5';
+const CACHE = 'wordhouse-v9';
 const FILES = [
   './',
   './index.html',
